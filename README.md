@@ -1,0 +1,2 @@
+# dobi-script
+Scrpit ayuwoki
