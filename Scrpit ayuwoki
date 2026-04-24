@@ -1,0 +1,410 @@
+-- Load Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Window
+local Window = Rayfield:CreateWindow({
+    Name = "dobi",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "by Daf",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+-- Tab
+local Tab = Window:CreateTab("Visual", 4483362458)
+
+-- Services
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================
+-- FULLBRIGHT LOOP (RINGAN)
+-- =========================
+local FullBright = false
+local FB_Connection
+
+local function startFullBright()
+    if FB_Connection then FB_Connection:Disconnect() end
+    
+    FB_Connection = RunService.Heartbeat:Connect(function()
+        if FullBright then
+            Lighting.Brightness = 5
+            Lighting.ClockTime = 14
+            Lighting.FogEnd = 100000
+            Lighting.GlobalShadows = false
+            
+            for _,v in pairs(Lighting:GetDescendants()) do
+                if v:IsA("PostEffect") then
+                    v.Enabled = false
+                end
+            end
+        end
+    end)
+end
+
+local function stopFullBright()
+    if FB_Connection then
+        FB_Connection:Disconnect()
+        FB_Connection = nil
+    end
+    
+    Lighting.Brightness = 1
+    Lighting.ClockTime = 12
+    Lighting.FogEnd = 1000
+    Lighting.GlobalShadows = true
+end
+
+-- Toggle FullBright
+Tab:CreateToggle({
+    Name = "FullBright 😶‍🌫️",
+    CurrentValue = false,
+    Callback = function(Value)
+        FullBright = Value
+        if Value then
+            startFullBright()
+        else
+            stopFullBright()
+        end
+    end,
+})
+
+-- ============================================
+-- ESP AYUWOKI DENGAN DETEKSI TIDAK BERGERAK
+-- ============================================
+local ESP = false
+local ESP_Connection
+
+-- Data tracking untuk setiap objek Ayuwoki
+local AyuwokiTrack = {}  -- [obj] = { lastPos, lastMoveTime, isESPActive }
+
+local MOVE_THRESHOLD = 0.1   -- Perubahan posisi minimal dianggap bergerak (stud)
+local HIDE_DELAY = 5         -- Detik sebelum ESP hilang jika tidak bergerak
+
+-- Fungsi untuk mendapatkan root part yang stabil dari model
+local function getRootPart(model)
+    if not model or not model:IsA("Model") then return nil end
+    return model:FindFirstChild("Head") 
+        or model:FindFirstChild("HumanoidRootPart") 
+        or model:FindFirstChild("Torso") 
+        or model:FindFirstChild("UpperTorso") 
+        or model:FindFirstChild("LowerTorso")
+        or model:FindFirstChildOfClass("Part") 
+        or model:FindFirstChildOfClass("MeshPart")
+end
+
+-- Fungsi untuk membuat ESP (Highlight + Billboard jarak)
+local function createESP(ayuwokiObj)
+    if not ayuwokiObj or not ayuwokiObj.Parent then return end
+    -- Cegah duplikasi
+    if ayuwokiObj:FindFirstChild("Highlight") or ayuwokiObj:FindFirstChild("DistanceGui") then
+        return
+    end
+
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = ayuwokiObj
+
+    local part = getRootPart(ayuwokiObj)
+    if not part then return end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "DistanceGui"
+    billboard.Adornee = part
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 4, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = ayuwokiObj
+
+    local label = Instance.new("TextLabel")
+    label.Name = "DistanceLabel"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "0 studs"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.TextStrokeTransparency = 0.3
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 22
+    label.Parent = billboard
+end
+
+-- Fungsi untuk menghapus ESP
+local function removeESP(ayuwokiObj)
+    if not ayuwokiObj then return end
+    if ayuwokiObj:FindFirstChild("Highlight") then
+        ayuwokiObj.Highlight:Destroy()
+    end
+    if ayuwokiObj:FindFirstChild("DistanceGui") then
+        ayuwokiObj.DistanceGui:Destroy()
+    end
+end
+
+-- Fungsi untuk mencari semua objek Ayuwoki (dengan A besar)
+local function findAyuwokiObjects()
+    local results = {}
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj.Name == "Ayuwoki" and obj:IsA("Model") then
+            table.insert(results, obj)
+        end
+    end
+    return results
+end
+
+-- Loop utama ESP dengan deteksi pergerakan
+local function startESP()
+    if ESP_Connection then ESP_Connection:Disconnect() end
+
+    ESP_Connection = RunService.Heartbeat:Connect(function()
+        if not ESP then return end
+
+        local character = LocalPlayer.Character
+        if not character then return end
+
+        local rootPart = character:FindFirstChild("HumanoidRootPart") 
+                      or character:FindFirstChild("Torso") 
+                      or character:FindFirstChild("Head")
+        if not rootPart then return end
+
+        local ayuwokiList = findAyuwokiObjects()
+        local currentTime = tick()
+
+        -- Update tracking untuk setiap objek yang ada
+        for _, obj in ipairs(ayuwokiList) do
+            local part = getRootPart(obj)
+            if part then
+                local currentPos = part.Position
+                local track = AyuwokiTrack[obj]
+
+                -- Inisialisasi data tracking jika baru
+                if not track then
+                    track = {
+                        lastPos = currentPos,
+                        lastMoveTime = currentTime,
+                        isESPActive = false
+                    }
+                    AyuwokiTrack[obj] = track
+                end
+
+                -- Cek apakah posisi berubah melebihi threshold
+                local delta = (currentPos - track.lastPos).Magnitude
+                if delta >= MOVE_THRESHOLD then
+                    track.lastPos = currentPos
+                    track.lastMoveTime = currentTime
+                end
+
+                -- Tentukan apakah ESP harus aktif berdasarkan waktu diam
+                local timeSinceMove = currentTime - track.lastMoveTime
+                local shouldShowESP = (timeSinceMove < HIDE_DELAY)
+
+                -- Perbarui status ESP
+                if shouldShowESP then
+                    if not track.isESPActive then
+                        createESP(obj)
+                        track.isESPActive = true
+                    else
+                        -- Update jarak jika ESP sudah ada
+                        local billboard = obj:FindFirstChild("DistanceGui")
+                        if billboard then
+                            local label = billboard:FindFirstChild("DistanceLabel")
+                            if label then
+                                local distance = (part.Position - rootPart.Position).Magnitude
+                                label.Text = string.format("%.1f studs", distance)
+                                if distance < 20 then
+                                    label.TextColor3 = Color3.fromRGB(255, 0, 0)
+                                elseif distance < 50 then
+                                    label.TextColor3 = Color3.fromRGB(255, 165, 0)
+                                else
+                                    label.TextColor3 = Color3.fromRGB(0, 255, 0)
+                                end
+                            end
+                        end
+                    end
+                else
+                    if track.isESPActive then
+                        removeESP(obj)
+                        track.isESPActive = false
+                    end
+                end
+            end
+        end
+
+        -- Bersihkan tracking untuk objek yang sudah tidak ada di workspace
+        for obj, _ in pairs(AyuwokiTrack) do
+            if not obj.Parent then
+                AyuwokiTrack[obj] = nil
+            end
+        end
+    end)
+end
+
+local function stopESP()
+    if ESP_Connection then
+        ESP_Connection:Disconnect()
+        ESP_Connection = nil
+    end
+
+    -- Hapus semua ESP dan bersihkan tracking
+    for obj, track in pairs(AyuwokiTrack) do
+        if track.isESPActive then
+            removeESP(obj)
+        end
+    end
+    AyuwokiTrack = {}
+end
+
+-- Toggle ESP
+Tab:CreateToggle({
+    Name = "ESP Ayuwoki 🙊",
+    CurrentValue = false,
+    Callback = function(Value)
+        ESP = Value
+        if Value then
+            startESP()
+        else
+            stopESP()
+        end
+    end,
+})
+
+-- Notifikasi
+Rayfield:Notify({
+    Title = "Script Loaded",
+    Content = "ESP Ayuwoki  deteksi  on!",
+    Duration = 3
+})
+
+-- =========================
+-- TAB BARU: PLAYER
+-- =========================
+local PlayerTab = Window:CreateTab("Player", 4483362458)
+
+-- =========================
+-- AUTO STAMINA
+-- =========================
+local StaminaOn = false
+
+local StaminaEvent = game:GetService("ReplicatedStorage").Events.AddStamina
+
+local function startStamina()
+    if StaminaOn then return end
+    StaminaOn = true
+
+    task.spawn(function()
+        while StaminaOn do
+            firesignal(StaminaEvent.OnClientEvent, 40)
+            task.wait(0.3)
+        end
+    end)
+end
+
+local function stopStamina()
+    StaminaOn = false
+end
+
+PlayerTab:CreateToggle({
+    Name = "Auto Stamina 🔋",
+    CurrentValue = false,
+    Callback = function(Value)
+        if Value then
+            startStamina()
+        else
+            stopStamina()
+        end
+    end,
+})
+
+-- =========================
+-- SPEED BOOST
+-- =========================
+local SpeedOn = false
+
+local SpeedEvent = game:GetService("ReplicatedStorage").Events.SpeedBoost
+
+local function startSpeed()
+    if SpeedOn then return end
+    SpeedOn = true
+
+    task.spawn(function()
+        while SpeedOn do
+            firesignal(SpeedEvent.OnClientEvent, 6, 8)
+            task.wait(0.5)
+        end
+    end)
+end
+
+local function stopSpeed()
+    SpeedOn = false
+end
+
+PlayerTab:CreateToggle({
+    Name = "Speed Boost ⚡",
+    CurrentValue = false,
+    Callback = function(Value)
+        if Value then
+            startSpeed()
+        else
+            stopSpeed()
+        end
+    end,
+})
+
+-- =========================
+-- ANTI LAG
+-- =========================
+local AntiLag = false
+
+local function enableAntiLag()
+    local Lighting = game:GetService("Lighting")
+    
+    -- Lighting dibuat ringan
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 2
+    
+    -- Hapus efek berat
+    for _,v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") then
+            v.Enabled = false
+        end
+    end
+
+    -- Sederhanakan object di map
+    for _,v in pairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.Material = Enum.Material.Plastic
+            v.Reflectance = 0
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = false
+        end
+    end
+
+    -- Optional: batasi FPS (biar stabil)
+    setfpscap(30)
+end
+
+local function disableAntiLag()
+    -- Balikin FPS (default biasanya 60 / uncapped executor)
+    setfpscap(60)
+end
+
+-- Toggle UI
+Tab:CreateToggle({
+    Name = "Anti Lag 🚀",
+    CurrentValue = false,
+    Callback = function(Value)
+        AntiLag = Value
+        if Value then
+            enableAntiLag()
+        else
+            disableAntiLag()
+        end
+    end,
+})
